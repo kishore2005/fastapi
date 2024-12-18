@@ -1,10 +1,10 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import sqlitecloud
 import logging
 from datetime import datetime
-from typing import Dict, List
+from typing import Optional, Dict, List
 import time
 import os
 
