@@ -1,10 +1,10 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import sqlitecloud
 import logging
 from datetime import datetime
-from typing import Optional, Dict, List
+from typing import Dict, List
 import time
 import os
 
@@ -183,7 +183,7 @@ async def get_user_bookings(request: UserBookingsRequest):
         logging.error(f"Error fetching user bookings: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
-@app.on_event("startup")
-async def startup_event():
-    logging.info("Starting up the application")
-    # Any other startup tasks can be added here
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
