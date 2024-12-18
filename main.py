@@ -8,14 +8,9 @@ from typing import Optional, Dict, List
 import time
 import os
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-
 # Vercel requires the app to be named "app"
 app = FastAPI()
-
-# Use environment variable for DATABASE_URL
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlitecloud://ce3yvllesk.sqlite.cloud:8860/newgass?apikey=kOt8yvfwRbBFka2FXT1Q1ybJKaDEtzTya3SWEGzFbvE")
+DATABASE_URL = "sqlitecloud://ce3yvllesk.sqlite.cloud:8860/newgass?apikey=kOt8yvfwRbBFka2FXT1Q1ybJKaDEtzTya3SWEGzFbvE"
 
 # Enable CORS
 app.add_middleware(
@@ -45,10 +40,8 @@ class UserBookingsRequest(BaseModel):
 def connect_to_database(retries=5, delay=5):
     for i in range(retries):
         try:
-            logging.info(f"Attempting to connect to the database, try {i+1}")
             conn = sqlitecloud.connect(DATABASE_URL)
             cursor = conn.cursor()
-            logging.info("Database connection successful")
             return conn, cursor
         except sqlitecloud.exceptions.SQLiteCloudException as e:
             logging.error(f"Database connection failed: {e}")
@@ -58,43 +51,45 @@ def connect_to_database(retries=5, delay=5):
                 raise
 
 # Ensure the connection is properly closed after creating tables
-try:
-    conn, cursor = connect_to_database()
-    # Create the products table if it doesn't exist
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS products (
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL,
-        price REAL NOT NULL,
-        image TEXT NOT NULL
-    )
-    ''')
+conn, cursor = connect_to_database()
+# Create the products table if it doesn't exist
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS products (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    price REAL NOT NULL,
+    image TEXT NOT NULL
+)
+''')
 
-    # Create the bookings table if it doesn't exist
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS bookings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        mobile TEXT NOT NULL,
-        address TEXT NOT NULL,
-        product_id INTEGER NOT NULL,
-        product_name TEXT NOT NULL,
-        product_price REAL NOT NULL,
-        booking_time TEXT NOT NULL,
-        FOREIGN KEY (product_id) REFERENCES products (id)
-    )
-    ''')
-    conn.commit()
-    conn.close()
-    logging.info("Database tables created successfully")
-except Exception as e:
-    logging.error(f"Error during database setup: {e}")
+# Create the bookings table if it doesn't exist
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS bookings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    mobile TEXT NOT NULL,
+    address TEXT NOT NULL,
+    product_id INTEGER NOT NULL,
+    product_name TEXT NOT NULL,
+    product_price REAL NOT NULL,
+    booking_time TEXT NOT NULL,
+    FOREIGN KEY (product_id) REFERENCES products (id)
+)
+''')
+conn.commit()
+conn.close()
 
-@app.get("/health")
-async def health_check():
-    return {"status": "ok"}
+# Remove the create product endpoint
+# @app.post("/products")
+# async def create_product(product: Product):
+#     # Insert new product into the database
+#     cursor.execute('''
+#     INSERT INTO products (id, name, price, image) VALUES (?, ?, ?, ?)
+#     ''', (product.id, product.name, product.price, product.image))
+#     conn.commit()
+#     return {"message": "Product created successfully"}
 
-@app.get("/products", response_model=List[Product])
+@app.get("/products2", response_model=List[Product])
 async def fetch_products():
     try:
         logging.info("Fetching products")
@@ -112,16 +107,14 @@ async def fetch_products():
         logging.error(f"Error fetching products: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
-@app.get("/bookings/{booking_id}")
+@app.get("/bookings2/{booking_id}")
 async def get_booking(booking_id: int):
     try:
-        logging.info(f"Fetching booking with ID: {booking_id}")
         conn, cursor = connect_to_database()
         cursor.execute("SELECT * FROM bookings WHERE id = ?", (booking_id,))
         booking = cursor.fetchone()
         conn.close()
         if not booking:
-            logging.warning(f"Booking with ID {booking_id} not found")
             raise HTTPException(status_code=404, detail="Booking not found")
         booking_details = {
             "id": booking[0],
@@ -133,22 +126,19 @@ async def get_booking(booking_id: int):
             "product_price": booking[6],
             "booking_time": booking[7]
         }
-        logging.info(f"Fetched booking details: {booking_details}")
         return booking_details
     except Exception as e:
         logging.error(f"Error fetching booking: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
-@app.post("/book")
+@app.post("/book2")
 async def book_product(details: BookingDetails):
     try:
-        logging.info(f"Booking product with details: {details}")
         conn, cursor = connect_to_database()
         cursor.execute("SELECT name, price FROM products WHERE id = ?", (details.product_id,))
         product = cursor.fetchone()
         if not product:
             conn.close()
-            logging.warning(f"Product with ID {details.product_id} not found")
             raise HTTPException(status_code=404, detail="Product not found")
 
         booking_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -159,16 +149,14 @@ async def book_product(details: BookingDetails):
         conn.commit()
         booking_id = cursor.lastrowid
         conn.close()
-        logging.info(f"Booking successful with ID: {booking_id}")
         return {"message": "Booking successful", "booking_id": booking_id}
     except Exception as e:
         logging.error(f"Error booking product: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
-@app.post("/user_bookings", response_model=List[Dict])
+@app.post("/user_bookings2", response_model=List[Dict])
 async def get_user_bookings(request: UserBookingsRequest):
     try:
-        logging.info(f"Fetching bookings for user with mobile: {request.mobile}")
         conn, cursor = connect_to_database()
         cursor.execute('''
         SELECT bookings.*, products.image FROM bookings
@@ -190,8 +178,12 @@ async def get_user_bookings(request: UserBookingsRequest):
                 "booking_time": booking[7],
                 "product_image": booking[8]
             })
-        logging.info(f"Fetched user bookings: {booking_list}")
         return booking_list
     except Exception as e:
         logging.error(f"Error fetching user bookings: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
+
+@app.on_event("startup")
+async def startup_event():
+    logging.info("Starting up the application")
+    # Any other startup tasks can be added here
