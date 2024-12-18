@@ -89,7 +89,7 @@ conn.close()
 #     conn.commit()
 #     return {"message": "Product created successfully"}
 
-@app.get("/products2", response_model=List[Product])
+@app.get("/products", response_model=List[Product])
 async def fetch_products():
     try:
         logging.info("Fetching products")
@@ -107,7 +107,7 @@ async def fetch_products():
         logging.error(f"Error fetching products: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
-@app.get("/bookings2/{booking_id}")
+@app.get("/bookings/{booking_id}")
 async def get_booking(booking_id: int):
     try:
         conn, cursor = connect_to_database()
@@ -131,7 +131,7 @@ async def get_booking(booking_id: int):
         logging.error(f"Error fetching booking: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
-@app.post("/book2")
+@app.post("/book")
 async def book_product(details: BookingDetails):
     try:
         conn, cursor = connect_to_database()
@@ -154,7 +154,7 @@ async def book_product(details: BookingDetails):
         logging.error(f"Error booking product: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
-@app.post("/user_bookings2", response_model=List[Dict])
+@app.post("/user_bookings", response_model=List[Dict])
 async def get_user_bookings(request: UserBookingsRequest):
     try:
         conn, cursor = connect_to_database()
