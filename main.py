@@ -202,6 +202,7 @@ async def get_user_bookings(request: UserBookingsRequest):
         SELECT bookings.*, products.image FROM bookings
         JOIN products ON bookings.product_id = products.id
         WHERE bookings.mobile = ?
+        ORDER BY bookings.id DESC  
         ''', (request.mobile,))
         bookings = cursor.fetchall()
         conn.close()
@@ -230,6 +231,7 @@ async def fetch_all_orders():
         cursor.execute('''
         SELECT bookings.*, products.image FROM bookings
         JOIN products ON bookings.product_id = products.id
+        ORDER BY bookings.id DESC  
         ''')
         orders = cursor.fetchall()
         conn.close()
