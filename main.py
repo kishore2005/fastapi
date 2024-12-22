@@ -141,24 +141,27 @@ async def get_booking(booking_id: int):
 TELEGRAM_BOT_TOKEN = '7311171550:AAGXZ6fQWsPO30_FRZl3MCgXssvRaYFgiQM'
 TELEGRAM_CHAT_IDS = ['5408718071', '6987911258']  # List of chat IDs including the new one
 
-def send_telegram_message(message: str, chat_ids: List[str]):
+def send_telegram_message(message: str, chat_ids: List[str], retries=3, delay=5):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     for chat_id in chat_ids:
-        payload = {
-            "chat_id": chat_id,
-            "text": message
-        }
-        logging.info(f"Sending Telegram message to {chat_id} with payload: {payload}")
-        try:
-            response = requests.post(url, json=payload)
-            response.raise_for_status()
-        except requests.exceptions.HTTPError as e:
-            if response.status_code == 400:
-                logging.error(f"Failed to send Telegram message to {chat_id}: {e} - Response: {response.json()}")
-            else:
-                logging.error(f"Failed to send Telegram message to {chat_id}: {e} - Response: {response.text}")
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Failed to send Telegram message to {chat_id}: {e}")
+        for attempt in range(retries):
+            try:
+                payload = {
+                    "chat_id": chat_id,
+                    "text": message
+                }
+                logging.info(f"Sending Telegram message to {chat_id} with payload: {payload}")
+                response = requests.post(url, json=payload)
+                response.raise_for_status()
+                logging.info(f"Message sent successfully to {chat_id}")
+                break
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Failed to send Telegram message to {chat_id}: {e}")
+                if attempt < retries - 1:
+                    logging.info(f"Retrying in {delay} seconds...")
+                    time.sleep(delay)
+                else:
+                    logging.error(f"All retries failed for chat_id {chat_id}")
 
 async def send_booking_details_to_telegram(details: BookingDetails, product_name: str, product_price: float, booking_time: str):
     message = f"New booking received:\nName: {details.name}\nMobile: {details.mobile}\nAddress: {details.address}\nProduct: {product_name}\nPrice: {product_price}\nTime: {booking_time}"
