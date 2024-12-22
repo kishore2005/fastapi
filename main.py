@@ -43,14 +43,18 @@ class UserBookingsRequest(BaseModel):
 def connect_to_database(retries=5, delay=5):
     for i in range(retries):
         try:
+            logging.info(f"Attempting to connect to the database (Attempt {i + 1}/{retries})")
             conn = sqlitecloud.connect(DATABASE_URL)
             cursor = conn.cursor()
+            logging.info("Database connection successful")
             return conn, cursor
         except sqlitecloud.exceptions.SQLiteCloudException as e:
             logging.error(f"Database connection failed: {e}")
             if i < retries - 1:
+                logging.info(f"Retrying in {delay} seconds...")
                 time.sleep(delay)
             else:
+                logging.error("All retries failed. Could not connect to the database.")
                 raise
 
 # Ensure the connection is properly closed after creating tables
