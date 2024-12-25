@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import sqlitecloud
@@ -10,6 +10,10 @@ import os
 import requests
 import telegram
 from telegram.ext import ApplicationBuilder, ContextTypes
+import base64
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
 # Vercel requires the app to be named "app"
 app = FastAPI()
@@ -36,8 +40,17 @@ class BookingDetails(BaseModel):
     address: str
     product_id: int
 
+class BookingDetailsWithImage(BaseModel):
+    name: str
+    mobile: str
+    address: str
+    imageUrl: str
+
 class UserBookingsRequest(BaseModel):
     mobile: str
+
+class ImageUpload(BaseModel):
+    image: str
 
 # Retry mechanism for database connection
 def connect_to_database(retries=5, delay=5):
@@ -83,6 +96,19 @@ CREATE TABLE IF NOT EXISTS bookings (
     FOREIGN KEY (product_id) REFERENCES products (id)
 )
 ''')
+
+# Create the images table if it doesn't exist
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    mobile TEXT NOT NULL,
+    address TEXT NOT NULL,
+    imageUrl TEXT NOT NULL,
+    upload_time TEXT NOT NULL
+)
+''')
+
 conn.commit()
 conn.close()
 
@@ -163,12 +189,12 @@ def send_telegram_message(message: str, chat_ids: List[str], retries=3, delay=5)
                 else:
                     logging.error(f"All retries failed for chat_id {chat_id}")
 
-async def send_booking_details_to_telegram(details: BookingDetails, product_name: str, product_price: float, booking_time: str):
-    message = f"New booking received:\nName: {details.name}\nMobile: {details.mobile}\nAddress: {details.address}\nProduct: {product_name}\nPrice: {product_price}\nTime: {booking_time}"
+async def send_booking_details_to_telegram(details: BookingDetailsWithImage, product_name: str, product_price: float, booking_time: str):
+    message = f"New booking received:\nName: {details.name}\nMobile: {details.mobile}\nAddress: {details.address}\nProduct: {product_name}\nPrice: {product_price}\nTime: {booking_time}\nImage: {details.imageUrl}"
     send_telegram_message(message, TELEGRAM_CHAT_IDS)
 
 @app.post("/book")
-async def book_product(details: BookingDetails):
+async def book_product(details: BookingDetailsWithImage):
     try:
         conn, cursor = connect_to_database()
         cursor.execute("SELECT name, price FROM products WHERE id = ?", (details.product_id,))
@@ -190,6 +216,28 @@ async def book_product(details: BookingDetails):
         await send_booking_details_to_telegram(details, product[0], product[1], booking_time)
 
         return {"message": "Booking successful", "booking_id": booking_id}
+    except Exception as e:
+        logging.error(f"Error booking product: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+@app.post("/book_with_image")
+async def book_with_image(details: BookingDetailsWithImage):
+    try:
+        booking_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Save image details to the database
+        conn, cursor = connect_to_database()
+        cursor.execute('''
+        INSERT INTO images (name, mobile, address, imageUrl, upload_time)
+        VALUES (?, ?, ?, ?, ?)
+        ''', (details.name, details.mobile, details.address, details.imageUrl, booking_time))
+        conn.commit()
+        conn.close()
+
+        # Send Telegram message
+        await send_booking_details_to_telegram(details, "N/A", 0.0, booking_time)
+
+        return {"message": "Booking sucessfull"}
     except Exception as e:
         logging.error(f"Error booking product: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
@@ -251,6 +299,17 @@ async def fetch_all_orders():
         return order_list
     except Exception as e:
         logging.error(f"Error fetching orders: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+@app.post("/upload_image")
+async def upload_image(image: ImageUpload):
+    try:
+        base64_image = image.image
+        logging.info(f"Received base64 image: {base64_image[:100]}...")  # Print the first 100 characters for brevity
+        # You can now save the base64_image to your database or use it as needed
+        return {"message": "Image uploaded successfully", "base64_image": base64_image}  # Return the full base64 string
+    except Exception as e:
+        logging.error(f"Error uploading image: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 def get_chat_id():
