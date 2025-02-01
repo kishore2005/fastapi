@@ -220,6 +220,33 @@ async def book_product(details: BookingDetailsWithImage):
         logging.error(f"Error booking product: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
+@app.post("/book_product")
+async def book_product(details: BookingDetailsWithImage):
+    try:
+        conn, cursor = connect_to_database()
+        cursor.execute("SELECT name, price FROM products WHERE id = ?", (details.product_id,))
+        product = cursor.fetchone()
+        if not product:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        booking_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute('''
+        INSERT INTO bookings (name, mobile, address, product_id, product_name, product_price, booking_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (details.name, details.mobile, details.address, details.product_id, product[0], product[1], booking_time))
+        conn.commit()
+        booking_id = cursor.lastrowid
+        conn.close()
+
+        # Send Telegram message
+        await send_booking_details_to_telegram(details, product[0], product[1], booking_time)
+
+        return {"message": "Booking successful", "booking_id": booking_id}
+    except Exception as e:
+        logging.error(f"Error booking product: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
 @app.post("/book_with_image")
 async def book_with_image(details: BookingDetailsWithImage):
     try:
