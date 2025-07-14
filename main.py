@@ -33,7 +33,7 @@ app.add_middleware(
 )
 
 # Database configuration - Use environment variables in production
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlitecloud://ce3yvllesk.g4.sqlite.cloud:8860/room?apikey=kOt8yvfwRbBFka2FXT1Q1ybJKaDEtzTya3SWEGzFbvE")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlitecloud://ce3yvllesk.g4.sqlite.cloud:8860/my-app?apikey=kOt8yvfwRbBFka2FXT1Q1ybJKaDEtzTya3SWEGzFbvE")
 IMGBB_API_KEY = os.getenv("IMGBB_API_KEY", "43dbf9c00d857313ec47281400a87ca7")
 IMGBB_API_URL = "https://api.imgbb.com/1/upload"
 
@@ -193,6 +193,11 @@ def health_check():
     """Health check endpoint for deployment platforms"""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
+@app.get("/health")
+def health_check():
+    """Health check endpoint for deployment platforms"""
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
 @app.get("/")
 def root():
     """Root endpoint"""
@@ -337,6 +342,8 @@ def update_product(product_id: int, product_data: dict):
 
 @app.delete("/products/{product_id}")
 def delete_product(product_id: int):
+    """Delete a product"""
+    conn = None
     try:
         conn = sqlitecloud.connect(DATABASE_URL)
         cursor = conn.cursor()
@@ -346,17 +353,46 @@ def delete_product(product_id: int):
         if not cursor.fetchone():
             raise HTTPException(status_code=404, detail="Product not found")
         
-        # Delete product
+        # Check if product has orders (foreign key constraint)
+        cursor.execute("SELECT COUNT(*) FROM orders WHERE product_id = ?", (product_id,))
+        order_count = cursor.fetchone()[0]
+        
+        if order_count > 0:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot delete product with {order_count} existing orders. Please delete or reassign the orders first."
+            )
+        
+        # Check if product is assigned to customers
+        cursor.execute("SELECT COUNT(*) FROM customers WHERE product_id = ?", (product_id,))
+        customer_count = cursor.fetchone()[0]
+        
+        if customer_count > 0:
+            # Update customers to remove product assignment instead of failing
+            cursor.execute("UPDATE customers SET product_id = NULL WHERE product_id = ?", (product_id,))
+            logging.info(f"Removed product assignment from {customer_count} customers")
+        
+        # Now delete the product
         cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
+        
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Product not found")
+        
         conn.commit()
         logging.info(f"Product {product_id} deleted successfully")
         return {"message": "Product deleted successfully"}
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logging.error(f"Error deleting product: {e}")
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+        logging.error(f"Error deleting product {product_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error deleting product: {str(e)}")
     finally:
-        conn.close()
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 @app.post("/customers/")
 def create_customer(customer: CustomerCreate):
@@ -858,7 +894,8 @@ def get_product_reports(days: int = 30):
             SUM(COALESCE(o.custom_price, p.sell_price, 0) - COALESCE(p.cost_price, 0)) as total_profit,
             AVG(COALESCE(o.custom_price, p.sell_price, 0)) as avg_order_value,
             SUM(CASE WHEN o.status = 'delivered' THEN 1 ELSE 0 END) as delivered_orders,
-            SUM(CASE WHEN o.status = 'pending' THEN 1 ELSE 0 END) as pending_orders
+            SUM(CASE WHEN o.status = 'pending' THEN 1 ELSE 0 END) as pending_orders,
+            MAX(o.created_at) as last_order_date
         FROM products p
         LEFT JOIN orders o ON p.id = o.product_id 
         WHERE o.created_at >= DATE('now', '-{} days') OR o.created_at IS NULL
@@ -878,7 +915,8 @@ def get_product_reports(days: int = 30):
                 "total_profit": round(row[6] or 0, 2),
                 "avg_order_value": round(row[7] or 0, 2),
                 "delivered_orders": row[8] or 0,
-                "pending_orders": row[9] or 0
+                "pending_orders": row[9] or 0,
+                "last_order_date": row[10]
             })
         
         return product_reports
@@ -938,3 +976,52 @@ def get_product_daily_reports(days: int = 30):
 logging.getLogger('passlib').setLevel(logging.ERROR)
 logging.getLogger('uvicorn').setLevel(logging.INFO)
 logging.getLogger('fastapi').setLevel(logging.INFO)
+
+@app.get("/customers/one-time-old")
+def get_one_time_old_customers():
+    """Get customers who have ordered only once and haven't ordered again in over 30 days"""
+    try:
+        conn = sqlitecloud.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Get customers who have exactly one order and it's older than 30 days
+        cursor.execute('''
+        SELECT 
+            c.id,
+            c.name,
+            c.phone_number as phone,
+            c.address,
+            o.created_at as last_order_date,
+            o.custom_price as last_order_amount,
+            COUNT(o.id) as order_count
+        FROM customers c
+        JOIN orders o ON c.id = o.customer_id
+        WHERE o.created_at < datetime('now', '-30 days')
+        GROUP BY c.id, c.name, c.phone_number, c.address
+        HAVING COUNT(o.id) = 1
+        ORDER BY o.created_at DESC
+        ''')
+        
+        customers = cursor.fetchall()
+        logging.info(f"Found {len(customers)} one-time customers older than 30 days")
+        
+        result = []
+        for customer in customers:
+            result.append({
+                "id": customer[0],
+                "name": customer[1],
+                "phone": customer[2],
+                "email": None,  # Add email field if available in your database
+                "address": customer[3],
+                "last_order_date": customer[4],
+                "last_order_amount": customer[5],
+                "order_count": customer[6]
+            })
+        
+        return result
+        
+    except Exception as e:
+        logging.error(f"Error fetching one-time old customers: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+    finally:
+        conn.close()
