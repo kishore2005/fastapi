@@ -33,7 +33,7 @@ app.add_middleware(
 )
 
 # Database configuration - Use environment variables in production
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlitecloud://ce3yvllesk.g4.sqlite.cloud:8860/newgass?apikey=kOt8yvfwRbBFka2FXT1Q1ybJKaDEtzTya3SWEGzFbvE")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlitecloud://ce3yvllesk.g4.sqlite.cloud:8860/room?apikey=kOt8yvfwRbBFka2FXT1Q1ybJKaDEtzTya3SWEGzFbvE")
 IMGBB_API_KEY = os.getenv("IMGBB_API_KEY", "43dbf9c00d857313ec47281400a87ca7")
 IMGBB_API_URL = "https://api.imgbb.com/1/upload"
 
