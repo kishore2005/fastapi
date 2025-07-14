@@ -799,6 +799,47 @@ def get_daily_sales_report(days: int = 30):
     finally:
         conn.close()
 
+@app.get("/reports/monthly")
+def get_monthly_sales_report(months: int = 12):
+    try:
+        conn = sqlitecloud.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Get monthly sales data
+        cursor.execute('''
+        SELECT 
+            strftime('%Y-%m', o.created_at) as order_month,
+            COUNT(o.id) as total_orders,
+            SUM(COALESCE(o.custom_price, p.sell_price, 0)) as total_revenue,
+            SUM(COALESCE(o.custom_price, p.sell_price, 0) - COALESCE(p.cost_price, 0)) as total_profit,
+            SUM(CASE WHEN o.status = 'delivered' THEN 1 ELSE 0 END) as delivered_orders,
+            SUM(CASE WHEN o.status = 'pending' THEN 1 ELSE 0 END) as pending_orders
+        FROM orders o
+        JOIN products p ON o.product_id = p.id
+        WHERE o.created_at >= DATE('now', '-{} months')
+        GROUP BY strftime('%Y-%m', o.created_at)
+        ORDER BY order_month DESC
+        '''.format(months))
+        
+        monthly_reports = []
+        for row in cursor.fetchall():
+            monthly_reports.append({
+                "month": row[0],
+                "total_orders": row[1],
+                "total_revenue": round(row[2] or 0, 2),
+                "total_profit": round(row[3] or 0, 2),
+                "delivered_orders": row[4],
+                "pending_orders": row[5]
+            })
+        
+        return monthly_reports
+        
+    except Exception as e:
+        logging.error(f"Error getting monthly report: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+    finally:
+        conn.close()
+
 # Production logging configuration
 logging.getLogger('passlib').setLevel(logging.ERROR)
 logging.getLogger('uvicorn').setLevel(logging.INFO)
