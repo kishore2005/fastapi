@@ -1025,3 +1025,55 @@ def get_one_time_old_customers():
         raise HTTPException(status_code=500, detail="Internal Server Error")
     finally:
         conn.close()
+
+@app.get("/customers/one-time")
+def get_one_time_customers():
+    """
+    Get customers who have only placed one order and haven't ordered again in more than 30 days
+    """
+    try:
+        conn = sqlitecloud.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Find customers who have only one order and last order was more than 30 days ago
+        cursor.execute('''
+        SELECT 
+            c.id,
+            c.name,
+            c.phone_number,
+            c.address,
+            COUNT(o.id) as order_count,
+            MAX(o.created_at) as last_order_date,
+            SUM(o.total_price) as total_spent
+        FROM customers c
+        LEFT JOIN orders o ON c.id = o.customer_id
+        WHERE o.id IS NOT NULL
+        GROUP BY c.id, c.name, c.phone_number, c.address
+        HAVING 
+            COUNT(o.id) = 1 
+            AND DATE(MAX(o.created_at)) <= DATE('now', '-30 days')
+        ORDER BY last_order_date DESC
+        ''')
+        
+        customers = cursor.fetchall()
+        logging.info(f"Fetched {len(customers)} one-time customers")
+        
+        result = []
+        for customer in customers:
+            result.append({
+                "id": customer[0],
+                "name": customer[1],
+                "phone": customer[2],
+                "address": customer[3],
+                "order_count": customer[4],
+                "last_order_date": customer[5],
+                "total_spent": customer[6]
+            })
+        
+        return result
+        
+    except Exception as e:
+        logging.error(f"Error fetching one-time customers: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+    finally:
+        conn.close()
