@@ -840,6 +840,100 @@ def get_monthly_sales_report(months: int = 12):
     finally:
         conn.close()
 
+@app.get("/reports/products")
+def get_product_reports(days: int = 30):
+    try:
+        conn = sqlitecloud.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Get product sales data
+        cursor.execute('''
+        SELECT 
+            p.id,
+            p.name,
+            p.sell_price,
+            p.cost_price,
+            COUNT(o.id) as total_orders,
+            SUM(COALESCE(o.custom_price, p.sell_price, 0)) as total_revenue,
+            SUM(COALESCE(o.custom_price, p.sell_price, 0) - COALESCE(p.cost_price, 0)) as total_profit,
+            AVG(COALESCE(o.custom_price, p.sell_price, 0)) as avg_order_value,
+            SUM(CASE WHEN o.status = 'delivered' THEN 1 ELSE 0 END) as delivered_orders,
+            SUM(CASE WHEN o.status = 'pending' THEN 1 ELSE 0 END) as pending_orders
+        FROM products p
+        LEFT JOIN orders o ON p.id = o.product_id 
+        WHERE o.created_at >= DATE('now', '-{} days') OR o.created_at IS NULL
+        GROUP BY p.id, p.name, p.sell_price, p.cost_price
+        ORDER BY total_orders DESC, p.name ASC
+        '''.format(days))
+        
+        product_reports = []
+        for row in cursor.fetchall():
+            product_reports.append({
+                "product_id": row[0],
+                "product_name": row[1],
+                "sell_price": row[2],
+                "cost_price": row[3],
+                "total_orders": row[4] or 0,
+                "total_revenue": round(row[5] or 0, 2),
+                "total_profit": round(row[6] or 0, 2),
+                "avg_order_value": round(row[7] or 0, 2),
+                "delivered_orders": row[8] or 0,
+                "pending_orders": row[9] or 0
+            })
+        
+        return product_reports
+        
+    except Exception as e:
+        logging.error(f"Error getting product reports: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+    finally:
+        conn.close()
+
+@app.get("/reports/products/daily")
+def get_product_daily_reports(days: int = 30):
+    try:
+        conn = sqlitecloud.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Get daily product sales data
+        cursor.execute('''
+        SELECT 
+            DATE(o.created_at) as order_date,
+            p.id as product_id,
+            p.name as product_name,
+            COUNT(o.id) as total_orders,
+            SUM(COALESCE(o.custom_price, p.sell_price, 0)) as total_revenue,
+            SUM(COALESCE(o.custom_price, p.sell_price, 0) - COALESCE(p.cost_price, 0)) as total_profit,
+            SUM(CASE WHEN o.status = 'delivered' THEN 1 ELSE 0 END) as delivered_orders,
+            SUM(CASE WHEN o.status = 'pending' THEN 1 ELSE 0 END) as pending_orders
+        FROM orders o
+        JOIN products p ON o.product_id = p.id
+        WHERE o.created_at >= DATE('now', '-{} days')
+        GROUP BY DATE(o.created_at), p.id, p.name
+        ORDER BY order_date DESC, p.name ASC
+        '''.format(days))
+        
+        daily_reports = []
+        for row in cursor.fetchall():
+            daily_reports.append({
+                "date": row[0],
+                "product_id": row[1],
+                "product_name": row[2],
+                "total_orders": row[3],
+                "total_revenue": round(row[4] or 0, 2),
+                "total_profit": round(row[5] or 0, 2),
+                "delivered_orders": row[6],
+                "pending_orders": row[7]
+            })
+        
+        return daily_reports
+        
+    except Exception as e:
+        logging.error(f"Error getting product daily reports: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+    finally:
+        conn.close()
+
 # Production logging configuration
 logging.getLogger('passlib').setLevel(logging.ERROR)
 logging.getLogger('uvicorn').setLevel(logging.INFO)
