@@ -521,6 +521,52 @@ def get_one_time_customers():
     finally:
         conn.close()
 
+@app.get("/customers/search/phone/{phone_number}")
+def search_customer_by_phone(phone_number: str):
+    """Search for a customer by phone number"""
+    try:
+        conn = sqlitecloud.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Clean phone number (remove spaces, dashes, etc.)
+        cleaned_phone = ''.join(filter(str.isdigit, phone_number))
+        
+        # Search for customer with exact match or partial match
+        cursor.execute('''
+        SELECT c.id, c.name, c.phone_number, c.address, c.product_id, 
+               c.created_at, c.last_sold_price, p.name as product_name 
+        FROM customers c 
+        LEFT JOIN products p ON c.product_id = p.id 
+        WHERE REPLACE(REPLACE(REPLACE(c.phone_number, ' ', ''), '-', ''), '+', '') LIKE ?
+        OR c.phone_number LIKE ?
+        ORDER BY c.created_at DESC
+        ''', (f'%{cleaned_phone}%', f'%{phone_number}%'))
+        
+        customers = cursor.fetchall()
+        
+        if customers:
+            result = []
+            for customer in customers:
+                result.append({
+                    "id": customer[0],
+                    "name": customer[1],
+                    "phone_number": customer[2],
+                    "address": customer[3],
+                    "product_id": customer[4],
+                    "created_at": customer[5],
+                    "last_sold_price": customer[6],
+                    "product_name": customer[7]
+                })
+            return {"found": True, "customers": result}
+        else:
+            return {"found": False, "phone_number": phone_number}
+            
+    except Exception as e:
+        logging.error(f"Error searching customer by phone: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+    finally:
+        conn.close()
+
 @app.get("/customers/{customer_id}")
 def get_customer(customer_id: int):
     try:
